@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.qqlink.fabric.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "MinecraftServerTickTimesAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

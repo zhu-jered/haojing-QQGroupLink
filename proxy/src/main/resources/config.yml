@@ -1,0 +1,419 @@
+# ==============================================================================
+#  QQGroupLink —— Velocity 代理端 QQ 群服互通插件  配置文件
+# ------------------------------------------------------------------------------
+#  · 本文件全部使用 UTF-8 编码，请勿用记事本另存为 ANSI，否则中文会乱码
+#  · 修改后执行游戏内 /qqlink reload 或重启代理即可生效
+#  · 颜色写法支持三种，可混用：
+#       &6  /  §6        传统颜色代码
+#       &#FF8800         十六进制颜色
+#       <gold> <bold>    MiniMessage 风格标签
+#  · 占位符用 %名称% 书写，模板引擎"先填值、再上色"，
+#    因此玩家昵称/QQ 消息里就算写 <red> 也只会显示成普通文字，无法伪造样式
+# ==============================================================================
+
+# 配置结构版本，供将来做自动迁移，请勿手改
+config-version: "1.0.0"
+
+# 【全局总开关】false = 插件不做任何事（不连接、不注册指令）
+enabled: true
+
+# 调试模式：打印每一行收发的 OneBot 原始报文（排查连不上/收不到消息时打开）
+debug: false
+
+
+# ==============================================================================
+# 一、OneBot 连接配置
+# ==============================================================================
+onebot:
+  # 连接模式：
+  #   reverse  反向 WebSocket —— 本插件监听端口，等机器人连过来（★推荐，MCSM 里最省事）
+  #   forward  正向 WebSocket —— 本插件主动连机器人（机器人侧开"正向 WS 服务器"）
+  #   both     两者同时启用（多机器人 / 从正向迁移到反向的过渡期）
+  mode: reverse
+
+  # —— 正向模式参数（mode 为 forward / both 时生效）——
+  # go-cqhttp 默认正向端口 3001；NapCat 正向 WS 默认 3001；Lagrange 默认 8080
+  forward-url: "ws://127.0.0.1:3001"
+
+  # —— 反向模式参数（mode 为 reverse / both 时生效）——
+  reverse:
+    # 监听地址。同容器内互通用 0.0.0.0；只想本机访问可改 127.0.0.1
+    host: "0.0.0.0"
+    # 监听端口。要在 MCSM 的容器端口映射里放行这个端口
+    port: 8765
+    # 监听路径。机器人端填 ws://<代理容器IP>:8765/onebot/v11/ws
+    # NapCat 默认 /onebot/v11/ws 或 /；go-cqhttp 反向默认 /ws
+    # 提示：本插件对路径是"不匹配也照收"，只打日志提醒，不必强求一致
+    path: "/onebot/v11/ws"
+
+  # AccessToken（★强烈建议设置，尤其反向模式下端口可能被内网其他容器访问）
+  # 机器人端配置了就必须与这里完全一致；留空表示不校验
+  access-token: ""
+
+  # 机器人自身 QQ 号。留 0 会自动通过 get_login_info 获取
+  # 【作用】识别 @机器人 与过滤机器人自己发的消息（防消息回环）
+  # 如果你的机器人实现不上报 self_id，请务必手填，否则可能出现消息循环
+  self-id: 0
+
+  # —— 断线重连（指数退避）——
+  # 第 n 次失败等待 min(reconnect-interval × 2^(n-1), max-reconnect-delay)
+  reconnect-interval: 3000      # 首次重连等待（毫秒）
+  max-reconnect-delay: 60000    # 最大等待上限（毫秒）
+
+  # 心跳保活间隔（秒）。0 = 关闭。部分机器人会主动断开空闲连接，建议保持 30
+  heartbeat-interval: 30
+
+  # 单次 API 调用（如 get_login_info）等待响应的超时（毫秒）
+  request-timeout: 10000
+
+  # 发送失败后的重试次数（30 秒内有效）
+  send-retries: 3
+
+  # 【限流】每秒最多向 QQ 发送多少条消息。
+  # QQ 官方对机器人有频率限制，设置过大可能被风控。多服活动时建议 5~8
+  send-rate-limit: 5.0
+
+  # 发送队列上限。超过后丢弃最旧的消息（保证"服务器关闭"这类重要通知能发出去）
+  send-queue-limit: 500
+
+  # OneBot 层调试输出（与顶层 debug 独立，便于只排查协议问题）
+  debug: false
+
+
+# ==============================================================================
+# 二、QQ 群配置
+# ------------------------------------------------------------------------------
+#  · 键名就是群号
+#  · strict: true 时，未在此列出的群一律忽略（推荐，防止机器人被拉进陌生群后乱发消息）
+# ==============================================================================
+groups:
+  # 是否只服务下面列出的群。false = 任何群都响应（★不推荐）
+  strict: true
+
+  # ↓↓↓ 示例：请改成你自己的群号 ↓↓↓
+  "123456789":
+    # 群备注名，仅用于日志和 %group% 占位符
+    name: "生存服交流群"
+    # 该群的 QQ 消息转发到哪些子服（写 velocity.toml 里的服务器 id）
+    # 留空 [] 表示"转发到所有启用的子服"
+    mc-servers: ["survival"]
+    # 是否把该群的聊天转发到 MC
+    chat: true
+    # 是否允许该群使用管理指令
+    commands: true
+
+  # 示例：一个群同时连通两个子服（一群多服模式）
+  "987654321":
+    name: "双服大群"
+    mc-servers: ["survival", "mirror"]
+    chat: true
+    commands: true
+
+
+# ==============================================================================
+# 三、子服务器配置
+# ------------------------------------------------------------------------------
+#  · 键名必须与 velocity.toml 里 [servers] 段的键名【完全一致】（区分大小写）
+#    velocity.toml 示例：
+#        [servers]
+#        survival = "127.0.0.1:25566"
+#        mirror   = "127.0.0.1:25567"
+#  · 没在此处配置的子服不会报错，插件会直接拿服务器 id 当显示名，
+#    并在启动日志里提醒你补配置
+# ==============================================================================
+servers:
+  survival:
+    # QQ 消息里显示的服务器名，可以带颜色代码
+    display-name: "生存服"
+    # 是否启用与 QQ 的互通（false = 该子服完全隔离，消息不进不出）
+    enabled: true
+    # 是否为主服：QQ → MC 的默认转发目标（chat-target 设为 primary 时生效）
+    primary: true
+    # 该子服玩家聊天的转发策略，可覆盖全局。
+    # 留空（删掉这行）表示跟随全局 forwarding.minecraft-to-qq.chat
+    forward-chat: true
+    # 排序权重，#list / #tps 按此顺序输出，数字越小越靠前
+    order: 1
+
+  mirror:
+    display-name: "镜像服"
+    enabled: true
+    primary: false
+    forward-chat: true
+    order: 2
+
+
+# ==============================================================================
+# 四、转发规则
+# ==============================================================================
+forwarding:
+  # —— MC → QQ ——
+  minecraft-to-qq:
+    # 是否把子服玩家公屏聊天转发到 QQ 群
+    chat: true
+    # 需要玩家拥有的权限节点才会转发，例如 "qqlink.chat"。
+    # 留空 "" = 所有玩家都转发（默认）
+    # ★注意：Velocity 自身不含权限系统，未安装权限插件（如 LuckPerms-Velocity）时
+    #   hasPermission 一律返回 false。所以除非你已经装了权限插件，
+    #   请务必保持留空，否则会出现"聊天完全不转发"的现象。
+    require-permission: ""
+
+  # —— QQ → MC ——
+  qq-to-minecraft:
+    # 是否把 QQ 群消息转发到 MC
+    chat: true
+    # 默认转发目标：
+    #   all      所有启用的子服（默认，适合双服同玩的场景）
+    #   primary  仅主服（即上面 primary: true 的那个）
+    target: all
+
+    # —— 通过消息前缀指定目标子服 ——
+    prefix-routing:
+      enabled: true
+      # 匹配方式：display（按显示名，如"生存服"）/ id（按 velocity id，如 survival）/ both
+      mode: both
+      # 是否允许带分隔符的写法。开启后以下写法都支持：
+      #   生存服 你好          （空格）
+      #   生存服: 你好         （英文冒号）
+      #   生存服：你好         （中文冒号）
+      #   [生存服] 你好        （方括号）
+      #   【生存服】你好       （中文方括号）
+      #   @生存服 你好
+      # 关闭后只认"名字 + 空格 + 内容"这一种写法，避免误判
+      allow-separators: true
+
+  # —— 跨子服聊天（可选）——
+  # 开启后，A 服玩家的聊天会以同样格式显示到 B 服玩家屏幕上
+  cross-server-chat:
+    enabled: false
+    # 是否也回显给发言者自己所在的子服（一般 false，否则本服玩家会看到两条）
+    echo-to-source: false
+
+  # 玩家在子服之间跳转时，是否合并"退出+加入"为一条"切换服务器"提示
+  # true  = 只发一条：&e→ 玩家 从 生存服 切换到了 镜像服
+  # false = 发两条：退出 + 加入
+  suppress-switch-noise: true
+
+
+# ==============================================================================
+# 五、游戏事件推送（每项独立开关）
+# ==============================================================================
+events:
+  # 事件推送总开关（关闭后下面所有项都不生效，但聊天转发不受影响）
+  enabled: true
+
+  # 玩家加入服务器（谁进了哪个服）
+  join: true
+  # 玩家退出服务器
+  quit: true
+  # 服务器启动 / 关闭状态通知
+  server-status: true
+  # 服务器状态通知是否 @全体成员（★慎用，可能被群成员讨厌）
+  server-status-at-all: false
+  # 游戏内管理员公告（/say、/broadcast、/me）同步转发到 QQ 群
+  admin-broadcast: true
+  # 玩家在子服之间切换的通知
+  server-switch: true
+
+  # —— 玩家死亡通知 ——
+  death:
+    enabled: true
+    # 死亡原因来源：
+    #   auto   优先用 qqlink-fabric 模组上报的精确死因，其次是代理侧解析
+    #   regex  只用代理侧解析（不装模组也能用，但复杂死因会退化）
+    #   none   完全不显示死因
+    cause-mode: auto
+    # 死因显示的最大长度（防止 "被 XXX 用 [超长附魔名] 杀死" 刷屏）
+    cause-max-length: 60
+
+  # —— 成就 / 进度通知 ——
+  advancement:
+    enabled: true
+    # 过滤"获得新配方"，这类提示极其频繁，会刷屏（★建议保持 true）
+    ignore-recipes: true
+    # 过滤"挑战"类进度
+    ignore-challenges: false
+    # 是否广播给全服（false 时只提示达成者自己，本插件一般不推送）
+    announce-to-all: true
+    # 黑名单：进度标题包含其中任意关键词就不推送
+    # 例如 ["万物皆可", "隐藏进度"]
+    blacklist: []
+
+
+# ==============================================================================
+# 六、QQ 群指令系统
+# ==============================================================================
+commands:
+  # 指令系统总开关
+  enabled: true
+
+  # 指令前缀，可配置多个。群成员以其中任意一个开头发送即被识别为指令
+  prefixes: ["#", "/", "."]
+
+  # 执行后是否回复结果。false = 静默执行（只看游戏内效果）
+  feedback: true
+
+  # 【安全】非管理员发送管理指令时的行为：
+  #   silent  完全无响应（★默认。别人无法通过试探得知群里有机器人，也无法骚扰管理员）
+  #   reply   回复"你没有权限执行该指令"
+  unauthorized: silent
+
+  # 被 @机器人 时，即使没写指令前缀，是否也提示帮助信息
+  reply-on-mention: true
+
+  # #list 输出样式：compact（一行一服）/ detail（含人数与玩家名分行）
+  list-style: compact
+  # #list 是否列出当前没人的子服
+  list-include-empty: true
+
+  # #broadcast / #send 是否需要二次确认。false = 直接执行（方便，但手滑就会全服公告）
+  confirm-heavy: false
+
+  # 指令执行结果是否也同步到游戏内，让服内玩家知道是谁在 QQ 里操作的
+  echo-to-minecraft: true
+
+  # —— 内置指令逐项开关与别名 ——
+  builtin:
+    list:
+      enabled: true
+      aliases: ["在线", "玩家列表", "online"]
+      usage: "#list"
+      description: "查询各子服在线玩家列表"
+    tps:
+      enabled: true
+      aliases: ["性能", "mspt", "lag"]
+      usage: "#tps"
+      description: "查询各子服 TPS / MSPT 性能数据"
+    broadcast:
+      enabled: true
+      aliases: ["bc", "公告", "announce"]
+      usage: "#broadcast <内容>"
+      description: "向所有子服发送全服公告"
+    send:
+      enabled: true
+      aliases: ["发送", "msg"]
+      usage: "#send <服务器名> <内容>"
+      description: "向指定单个子服发送消息"
+    help:
+      enabled: true
+      aliases: ["帮助", "?", "h"]
+      usage: "#help"
+      description: "查看可用指令列表"
+    status:
+      enabled: true
+      aliases: ["状态", "st"]
+      usage: "#status"
+      description: "查看机器人与代理运行状态"
+
+
+# ==============================================================================
+# 七、消息格式模板
+# ------------------------------------------------------------------------------
+#  可用占位符：
+#    %server%    子服显示名        %server_id%  子服 id
+#    %player%    玩家名            %message%    消息正文
+#    %sender%    QQ 昵称           %sender_id%  QQ 号
+#    %group%     群名              %group_id%   群号
+#    %cause%     死亡原因          %advancement% / %title%  成就名   %frame% 成就类型
+#    %count%     数量/人数         %players%    玩家列表  %tps%  %mspt%
+#    %uptime%    运行时长          %from% %to%  切换前后子服  %from_id% %to_id%  对应子服 id
+#    %usage%     指令用法          %description% 指令说明  %command% 指令名  %prefix% 指令前缀
+#    %bot%       机器人 QQ         %connection% 连接状态   %servers% 子服数
+# ==============================================================================
+format:
+  # —— 聊天 ——
+  chat:
+    # 子服玩家聊天 → QQ 群（★核心模板）
+    mc-to-qq: "&7[&b%server%&7] &f%player%&7: &f%message%"
+    # QQ 群消息 → MC 公屏（子服玩家看到的样式）
+    qq-to-mc: "&7[&9QQ&7] &f%sender%&7: &f%message%"
+    # 同时记录到代理控制台（留空 "" 可关闭）
+    qq-to-console: "[QQ][%group%] %sender%(%sender_id%): %message%"
+
+  # —— 玩家事件 ——
+  event:
+    join: "&a+ &f%player% &7加入了 &b%server% &7(&f%count%&7人在线)"
+    quit: "&c- &f%player% &7离开了 &b%server%"
+    server-switch: "&e→ &f%player% &7从 &b%from% &7切换到了 &b%to%"
+    death: "&8[&c死亡&8] &f%player% &7在 &b%server% &7%cause%"
+    advancement: "&6[成就] &f%player% &7达成了 &e%advancement%&7（%frame%）"
+
+  # —— 服务器状态 ——
+  server:
+    start: "&a[服务器] &b%server% &a已启动，当前在线 &f%count% &a人"
+    stop: "&c[服务器] &b%server% &c已关闭"
+    broadcast: "&6[公告] &f%message%"
+
+  # —— 指令回执 ——
+  command:
+    list-header: "&e===== 子服在线情况（共 %count% 人在线）====="
+    list-line: "&7- &b%server% &7(&f%count%&7人): &f%players%"
+    list-empty: "&7无人在线"
+    tps-header: "&e===== 子服性能（共 %count% 个服）====="
+    tps-line: "&7- &b%server% &7TPS: %tps% &7MSPT: %mspt% &7在线: %count%"
+    tps-unavailable: "&7- &b%server% &7暂无性能数据（子服未安装 qqlink-fabric 模组）"
+    help-header: "&e===== 可用指令 ====="
+    help-line: "&b%usage% &7- %description%"
+    help-footer: "&7提示：把消息发到群里即可执行，例：%prefix%list"
+    status: "&e机器人：%bot% &7| &e连接：%connection% &7| &e子服：%servers% &7| &e在线：%players% &7| &e运行：%uptime%"
+
+  # —— 错误与提示 ——
+  error:
+    no-permission: "&c你没有权限执行该指令"
+    unknown-command: "&c未知指令：%command%（输入 %prefix%help 查看帮助）"
+    usage: "&c参数不足，正确用法：%usage%"
+    server-not-found: "&c找不到子服：%server%（可用：%servers%）"
+    success: "&a操作成功"
+    rate-limited: "&c操作过于频繁，请稍后再试"
+    filtered: "&7消息包含违规内容或格式不正确，已忽略"
+
+  # —— 游戏内看到的 QQ 相关内容 ——
+  in-game:
+    qq-command: "&7[&9QQ&7] &f%sender% &7执行了 &f%command%"
+    qq-broadcast: "&6[公告] &f%message%"
+
+
+# ==============================================================================
+# 八、安全与白名单
+# ==============================================================================
+security:
+  # 【★必填】可以执行管理指令的 QQ 号白名单。其他人发指令默认无任何响应
+  admin-whitelist:
+    - 10001
+    - 10002
+
+  # 是否允许群主 / 群管理员也能执行指令（依赖机器人上报的 sender.role 字段）
+  allow-group-admin: false
+
+  # 是否启用白名单机制。false = 任何群成员都能执行管理指令（★极度危险，仅调试用）
+  whitelist-enabled: true
+
+  # 游戏内 /qqlink 指令所需的权限节点（Velocity 装了 LuckPerms 时生效）
+  in-game-permission: "qqlink.admin"
+
+  # 单条消息最大长度（字符）。超出部分截断，防止有人刷屏
+  # 【建议】QQ 侧 200 足够；如果你的群允许长消息，可调到 300~500
+  max-message-length: 200
+
+  # 单条消息最小长度。低于该长度不转发（可用于屏蔽单字刷屏）
+  min-message-length: 1
+
+  # 过滤重复字符刷屏（aaaaaaaaaaaa）
+  filter-repeated-chars: true
+  # 过滤纯符号 / 纯表情消息（没有任何字母数字中文的消息）
+  filter-symbols-only: true
+  # 剔除 CQ 码：把 [CQ:image,...] 等图片/语音/@ 段去掉，只保留纯文本
+  strip-cq-codes: true
+
+  # 每个 QQ 号每分钟最多发送多少条【会被转发到 MC】的消息。0 = 不限
+  user-rate-limit: 20
+  # 每个 QQ 群每分钟最多接收多少条【来自 MC】的消息。0 = 不限
+  # 【作用】保护机器人不发得太快被 QQ 风控
+  group-rate-limit: 60
+
+  # MC → QQ 时是否去掉消息里的颜色代码
+  strip-colors-to-qq: true
+
+  # 忽略的消息前缀（MC 与 QQ 双向生效）。
+  # 默认 "/" 表示：玩家在游戏里敲的指令不会被当作聊天转发到 QQ
+  ignored-prefixes: ["/"]

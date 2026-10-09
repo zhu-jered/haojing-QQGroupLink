@@ -1,0 +1,11 @@
+{
+  "id": "qqlink",
+  "name": "QQGroupLink",
+  "version": "1.0.0",
+  "description": "QQ 群与 Velocity 多子服双向互通（OneBot v11，正向/反向 WebSocket）",
+  "authors": [
+    "QQGroupLink"
+  ],
+  "dependencies": [],
+  "main": "com.qqlink.velocity.QQGroupLinkPlugin"
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "qqlink-fabric",
+  "version": "${version}",
+  "name": "QQGroupLink Fabric Bridge",
+  "description": "把 TPS/MSPT、死亡原因、成就解锁、服务器状态上报给 Velocity 端的 QQGroupLink 插件（可选组件，不装也能用聊天互通）",
+  "authors": [
+    "QQGroupLink"
+  ],
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.qqlink.fabric.QQGroupLinkFabric"
+    ]
+  },
+  "mixins": [
+    "qqlink-fabric.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21"
+  }
+}

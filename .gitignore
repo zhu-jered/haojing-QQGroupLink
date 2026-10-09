@@ -1,0 +1,41 @@
+# ===== Gradle =====
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# ===== 系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 运行期产物 =====
+run/
+logs/
+*.log
+
+# ===== Fabric Loom =====
+remappedSrc/
+.loom/
+
+# ===== 本地调试配置（可能包含真实 QQ 号 / token，切勿提交）=====
+config.yml
+# 但源码自带的默认配置模板必须随仓库提交（processResources 打包需要）
+!proxy/src/main/resources/config.yml
+plugins/
+**/config.yml.broken
+
+# ===== 本机构建环境（自定义 CA 信任库，含本机证书，勿提交）=====
+gradle/truststore/
